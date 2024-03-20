@@ -23,7 +23,6 @@ import (
 	"log"
 	"time"
 
-	"github.com/Masterminds/squirrel"
 	"github.com/golang-migrate/migrate/v4"
 	mpgx "github.com/golang-migrate/migrate/v4/database/pgx"
 	"github.com/jackc/pgx/v5"
@@ -80,8 +79,7 @@ type plugin struct {
 	connection string
 	opts       Config
 
-	builder squirrel.StatementBuilderType
-	pool    *pgxpool.Pool
+	pool *pgxpool.Pool
 }
 
 func NewPlugin(runtime runtime.Runtime, opts *Options) Plugin {
@@ -115,8 +113,6 @@ func (p *plugin) PreStart(ctx context.Context) (err error) {
 		p.opts.DSN = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
 			p.opts.Username, p.opts.Password, p.opts.Host, p.opts.Port, p.opts.Database, p.opts.SSLMode)
 	}
-
-	p.builder = squirrel.StatementBuilder.PlaceholderFormat(squirrel.Dollar)
 
 	poolConfig, err := pgxpool.ParseConfig(p.opts.DSN)
 	if err != nil {
