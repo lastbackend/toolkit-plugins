@@ -117,6 +117,10 @@ func NewTestPlugin(ctx context.Context, cfg TestConfig) (Plugin, error) {
 			opts.Username, opts.Password, opts.Host, opts.Port, opts.Database, opts.SSLMode)
 	}
 
+	if opts.Config.MaxPoolSize == 0 {
+		opts.Config.MaxPoolSize = 1
+	}
+
 	if opts.RunContainer {
 		if opts.ContainerImage == "" {
 			opts.ContainerImage = "postgres:15.2"
