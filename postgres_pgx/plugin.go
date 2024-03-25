@@ -25,15 +25,16 @@ import (
 
 	"github.com/golang-migrate/migrate/v4"
 	mpgx "github.com/golang-migrate/migrate/v4/database/pgx"
+	_ "github.com/golang-migrate/migrate/v4/source/file" // nolint
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lastbackend/toolkit/pkg/runtime"
-	"github.com/lastbackend/toolkit/pkg/runtime/logger"
 	"github.com/lastbackend/toolkit/pkg/tools/probes"
-	"github.com/pkg/errors"
-
-	_ "github.com/golang-migrate/migrate/v4/source/file" // nolint
 	_ "github.com/lib/pq"
+	"github.com/pkg/errors"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 const (
@@ -71,7 +72,6 @@ type Config struct {
 }
 
 type plugin struct {
-	log     logger.Logger
 	runtime runtime.Runtime
 
 	prefix     string
@@ -85,7 +85,6 @@ type plugin struct {
 func NewPlugin(runtime runtime.Runtime, opts *Options) Plugin {
 	p := new(plugin)
 	p.runtime = runtime
-	p.log = runtime.Log()
 
 	p.prefix = opts.Name
 	if p.prefix == "" {
@@ -97,6 +96,73 @@ func NewPlugin(runtime runtime.Runtime, opts *Options) Plugin {
 	}
 
 	return p
+}
+
+type TestConfig struct {
+	Config
+
+	RunContainer   bool
+	ContainerImage string
+}
+
+func NewTestPlugin(ctx context.Context, cfg TestConfig) (Plugin, error) {
+
+	opts := cfg
+
+	if opts.DSN == "" && !opts.RunContainer {
+		if opts.Host == "" {
+			return nil, fmt.Errorf("DSN or Host environment variable required but not set")
+		}
+		opts.DSN = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+			opts.Username, opts.Password, opts.Host, opts.Port, opts.Database, opts.SSLMode)
+	}
+
+	if opts.RunContainer {
+		if opts.ContainerImage == "" {
+			opts.ContainerImage = "postgres:15.2"
+		}
+
+		strategy := wait.ForLog("database system is ready to accept connections").
+			WithOccurrence(2).
+			WithStartupTimeout(5 * time.Second)
+
+		container, err := postgres.RunContainer(ctx,
+			testcontainers.WithImage(opts.ContainerImage),
+			postgres.WithDatabase("postgres"),
+			postgres.WithUsername("user"),
+			postgres.WithPassword("pass"),
+			testcontainers.WithWaitStrategy(strategy),
+			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
+				ContainerRequest: testcontainers.ContainerRequest{
+					Name: "postgres-container",
+				},
+				Reuse: true,
+			}),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		host, err := container.Host(ctx)
+		if err != nil {
+			return nil, err
+		}
+		realPort, err := container.MappedPort(ctx, "5432")
+		if err != nil {
+			return nil, err
+		}
+
+		opts.DSN = fmt.Sprintf("postgres://user:pass@%v:%v/postgres?sslmode=disable", host, realPort.Port())
+	}
+
+	p := new(plugin)
+	p.opts = opts.Config
+
+	if err := p.initPlugin(ctx); err != nil {
+		return nil, err
+	}
+
+	return p, nil
 }
 
 func (p *plugin) DB() *pgxpool.Pool {
@@ -114,40 +180,16 @@ func (p *plugin) PreStart(ctx context.Context) (err error) {
 			p.opts.Username, p.opts.Password, p.opts.Host, p.opts.Port, p.opts.Database, p.opts.SSLMode)
 	}
 
-	poolConfig, err := pgxpool.ParseConfig(p.opts.DSN)
-	if err != nil {
-		return errors.New(errMissingConnectionString)
-	}
-
-	poolConfig.MaxConns = int32(p.opts.MaxPoolSize)
-
-	connAttempts := p.opts.ConnAttempts
-
-	for connAttempts > 0 {
-		p.pool, err = pgxpool.NewWithConfig(ctx, poolConfig)
-		if err == nil {
-			break
-		}
-
-		log.Printf("Postgres is trying to connect, attempts left: %d", connAttempts)
-
-		time.Sleep(p.opts.ConnTimeout)
-
-		connAttempts--
-	}
-
-	if err != nil {
-		return errors.New(errConnectAttempts)
+	if err := p.initPlugin(ctx); err != nil {
+		return err
 	}
 
 	db, err := pgx.Connect(ctx, p.opts.DSN)
 	if err != nil {
 		return errors.New(errMissingConnectionString)
 	}
-	p.connection = p.opts.DSN
 
 	p.runtime.Tools().Probes().RegisterCheck(p.prefix, probes.ReadinessProbe, PostgresPingChecker(db, 1*time.Second))
-
 	return nil
 }
 
@@ -215,6 +257,41 @@ func (p *plugin) RunMigration() error {
 	}
 
 	fmt.Printf("\nMigration completed!\n")
+
+	return nil
+}
+
+func (p *plugin) initPlugin(ctx context.Context) error {
+
+	poolConfig, err := pgxpool.ParseConfig(p.opts.DSN)
+	if err != nil {
+		return errors.New(errMissingConnectionString)
+	}
+
+	poolConfig.MaxConns = int32(p.opts.MaxPoolSize)
+
+	connAttempts := p.opts.ConnAttempts
+	if connAttempts == 0 {
+		connAttempts = 1
+	}
+
+	for connAttempts > 0 {
+		p.pool, err = pgxpool.NewWithConfig(ctx, poolConfig)
+		if err == nil {
+			break
+		}
+
+		log.Printf("Postgres is trying to connect, attempts left: %d", connAttempts)
+
+		time.Sleep(p.opts.ConnTimeout)
+
+		connAttempts--
+	}
+	if err != nil {
+		return errors.New(errConnectAttempts)
+	}
+
+	p.connection = p.opts.DSN
 
 	return nil
 }
