@@ -20,9 +20,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 	"log"
 	"time"
 
@@ -35,6 +32,9 @@ import (
 	"github.com/lastbackend/toolkit/pkg/tools/probes"
 	_ "github.com/lib/pq"
 	"github.com/pkg/errors"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 const (
@@ -100,6 +100,7 @@ func NewPlugin(runtime runtime.Runtime, opts *Options) Plugin {
 
 type TestConfig struct {
 	Config
+
 	RunContainer   bool
 	ContainerImage string
 }
