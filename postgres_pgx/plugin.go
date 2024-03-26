@@ -103,6 +103,7 @@ type TestConfig struct {
 
 	RunContainer   bool
 	ContainerImage string
+	ContainerName  string
 }
 
 func NewTestPlugin(ctx context.Context, cfg TestConfig) (Plugin, error) {
@@ -125,6 +126,9 @@ func NewTestPlugin(ctx context.Context, cfg TestConfig) (Plugin, error) {
 		if opts.ContainerImage == "" {
 			opts.ContainerImage = "postgres:15.2"
 		}
+		if opts.ContainerName == "" {
+			opts.ContainerName = "postgres-test-container"
+		}
 
 		strategy := wait.ForLog("database system is ready to accept connections").
 			WithOccurrence(2).
@@ -138,7 +142,7 @@ func NewTestPlugin(ctx context.Context, cfg TestConfig) (Plugin, error) {
 			testcontainers.WithWaitStrategy(strategy),
 			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 				ContainerRequest: testcontainers.ContainerRequest{
-					Name: "postgres-container",
+					Name: opts.ContainerName,
 				},
 				Reuse: true,
 			}),
