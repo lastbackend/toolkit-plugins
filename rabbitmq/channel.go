@@ -17,8 +17,8 @@ limitations under the License.
 package rabbitmq
 
 import (
+	"context"
 	"errors"
-
 	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -63,11 +63,11 @@ func (a *amqpChannel) Close() error {
 	return a.channel.Close()
 }
 
-func (a *amqpChannel) Publish(exchange, key string, message amqp.Publishing) error {
+func (a *amqpChannel) Publish(ctx context.Context, exchange, key string, message amqp.Publishing) error {
 	if a.channel == nil {
 		return errors.New("channel is nil")
 	}
-	return a.channel.Publish(exchange, key, false, false, message)
+	return a.channel.PublishWithContext(ctx, exchange, key, false, false, message)
 }
 
 func (a *amqpChannel) DeclareExchange(exchange, kind string) error {

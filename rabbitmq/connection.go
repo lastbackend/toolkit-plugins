@@ -17,6 +17,7 @@ limitations under the License.
 package rabbitmq
 
 import (
+	"context"
 	"crypto/tls"
 	"regexp"
 	"strings"
@@ -79,7 +80,7 @@ func newConnection(runtime runtime.Runtime, ex Exchange, urls []string, prefetch
 		url = urls[0]
 	}
 
-	ret := &amqpConn{
+	conn := &amqpConn{
 		runtime:        runtime,
 		exchange:       ex,
 		url:            url,
@@ -89,9 +90,9 @@ func newConnection(runtime runtime.Runtime, ex Exchange, urls []string, prefetch
 		waitConnection: make(chan struct{}),
 	}
 
-	close(ret.waitConnection)
+	close(conn.waitConnection)
 
-	return ret
+	return conn
 }
 
 func (a *amqpConn) connect(secure bool, config *amqp.Config) error {
@@ -275,6 +276,6 @@ func (a *amqpConn) Consume(exchange, queue, key string, headers amqp.Table, qArg
 	return ch, consumers, nil
 }
 
-func (a *amqpConn) Publish(exchange, key string, msg amqp.Publishing) error {
-	return a.exchangeChannel.Publish(exchange, key, msg)
+func (a *amqpConn) Publish(ctx context.Context, exchange, key string, msg amqp.Publishing) error {
+	return a.exchangeChannel.Publish(ctx, exchange, key, msg)
 }

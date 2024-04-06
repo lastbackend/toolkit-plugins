@@ -20,11 +20,15 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/lastbackend/toolkit/pkg/runtime"
 	"github.com/lastbackend/toolkit/pkg/runtime/logger"
 	"github.com/lastbackend/toolkit/pkg/tools/probes"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/rabbitmq"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 const (
@@ -32,8 +36,8 @@ const (
 )
 
 type Plugin interface {
-	Publish(event string, payload []byte, opts *PublishOptions) error
-	Subscribe(service, event string, handler Handler, opts *SubscribeOptions) (Subscriber, error)
+	Publish(ctx context.Context, event string, payload []byte, opts *PublishOptions) error
+	Subscribe(service, event string, handler CallHandler, opts *SubscribeOptions) (Subscriber, error)
 	Channel() (*amqp.Channel, error)
 }
 
@@ -74,8 +78,7 @@ type plugin struct {
 
 	opts Config
 
-	broker      *broker
-	subscribers map[string]bool
+	broker *broker
 }
 
 func NewPlugin(runtime runtime.Runtime, opts *Options) Plugin {
@@ -83,7 +86,6 @@ func NewPlugin(runtime runtime.Runtime, opts *Options) Plugin {
 
 	p.runtime = runtime
 	p.log = runtime.Log()
-
 	p.service = p.runtime.Meta().GetName()
 	p.prefix = opts.Name
 	if p.prefix == "" {
@@ -95,6 +97,82 @@ func NewPlugin(runtime runtime.Runtime, opts *Options) Plugin {
 	}
 
 	return p
+}
+
+type TestConfig struct {
+	Config
+
+	RunContainer   bool
+	ContainerImage string
+	ContainerName  string
+}
+
+func NewTestPlugin(ctx context.Context, cfg TestConfig) (Plugin, error) {
+
+	opts := cfg
+
+	if opts.DSN == "" {
+		if opts.Host == "" {
+			return nil, fmt.Errorf("DSN or Host environment variable required but not set")
+		}
+		opts.DSN = fmt.Sprintf("amqp://%s:%s@%s:%d%s",
+			opts.Username, opts.Password, opts.Host, opts.Port, opts.Vhost)
+	}
+
+	if opts.RunContainer {
+		if opts.ContainerImage == "" {
+			opts.ContainerImage = "rabbitmq:management-alpine"
+		}
+		if opts.ContainerName == "" {
+			opts.ContainerName = "rabbitmq-test-container"
+		}
+
+		strategy := wait.ForLog("database system is ready to accept connections").
+			WithOccurrence(2).
+			WithStartupTimeout(5 * time.Second)
+
+		container, err := rabbitmq.RunContainer(ctx,
+			testcontainers.WithImage(opts.ContainerImage),
+			rabbitmq.WithAdminPassword("user"),
+			rabbitmq.WithAdminPassword("pass"),
+			testcontainers.WithWaitStrategy(strategy),
+			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
+				ContainerRequest: testcontainers.ContainerRequest{
+					Name: opts.ContainerName,
+				},
+				Reuse: true,
+			}),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		host, err := container.Host(ctx)
+		if err != nil {
+			return nil, err
+		}
+		realPort, err := container.MappedPort(ctx, "5672")
+		if err != nil {
+			return nil, err
+		}
+
+		opts.DSN = fmt.Sprintf("amqp://user:pass@%s:%s%s", host, realPort.Port(), opts.Vhost)
+	}
+
+	p := new(plugin)
+	p.opts = opts.Config
+	p.opts.DefaultExchange = &Exchange{
+		Name:    p.service,
+		Durable: true,
+	}
+
+	p.broker = newBroker(p.runtime, p.opts)
+
+	if err := p.broker.Connect(); err != nil {
+		return nil, err
+	}
+
+	return p, nil
 }
 
 func (p *plugin) PreStart(ctx context.Context) error {
@@ -132,40 +210,13 @@ func (p *plugin) OnStop(context.Context) error {
 	return p.broker.Disconnect()
 }
 
-func (p *plugin) Publish(event string, payload []byte, opts *PublishOptions) error {
-	return p.broker.Publish(p.service, event, payload, opts)
+func (p *plugin) Publish(ctx context.Context, event string, payload []byte, opts *PublishOptions) error {
+	return p.broker.Publish(ctx, p.service, event, payload, opts)
 }
 
-type Handler func(ctx context.Context, payload []byte)
-
-func (p *plugin) Subscribe(service, event string, handler Handler, opts *SubscribeOptions) (Subscriber, error) {
-	queue := fmt.Sprintf("%s:events", p.service)
-	key := fmt.Sprintf("%s:%s", queue, event)
-
-	p.RLock()
-	_, exists := p.subscribers[key]
-	p.RUnlock()
-
-	if exists {
-		return nil, fmt.Errorf("handler already set for event: %s", event)
-	}
-
-	p.RLock()
-	p.subscribers[key] = true
-	p.RUnlock()
-
-	fn := func(ctx context.Context, name string, data []byte) {
-		if event != name {
-			return
-		}
-		handler(ctx, data)
-	}
-
-	if opts == nil {
-		opts = new(SubscribeOptions)
-	}
-
-	return p.broker.Subscribe(service, queue, fn, opts)
+func (p *plugin) Subscribe(service, event string, handler CallHandler, opts *SubscribeOptions) (Subscriber, error) {
+	queue := fmt.Sprintf("%s:events", service)
+	return p.broker.Subscribe(service, queue, event, handler, opts)
 }
 
 func (p *plugin) Channel() (*amqp.Channel, error) {
