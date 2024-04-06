@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"sync"
 
 	"github.com/lastbackend/toolkit/pkg/runtime"
@@ -29,6 +30,8 @@ import (
 
 type ack struct{}
 type reject struct{}
+
+type CallHandler func(ctx context.Context, payload []byte)
 
 type brokerOptions struct {
 	Endpoint        string
@@ -50,6 +53,8 @@ type broker struct {
 	prefetchGlobal bool
 	exchange       Exchange
 
+	handlers map[string][]CallHandler
+
 	wg sync.WaitGroup
 }
 
@@ -70,6 +75,7 @@ func newBroker(runtime runtime.Runtime, opts Config) *broker {
 		endpoints: []string{opts.DSN},
 		opts:      opts,
 		exchange:  exchange,
+		handlers:  make(map[string][]CallHandler, 0),
 	}
 }
 
@@ -97,7 +103,7 @@ func (r *broker) RejectAndRequeue(ctx context.Context) error {
 	return fn(true)
 }
 
-func (r *broker) Publish(exchange, event string, payload []byte, opts *PublishOptions) error {
+func (r *broker) Publish(ctx context.Context, exchange, event string, payload []byte, opts *PublishOptions) error {
 
 	e := message{
 		Event:   event,
@@ -115,6 +121,7 @@ func (r *broker) Publish(exchange, event string, payload []byte, opts *PublishOp
 
 	m := amqp.Publishing{
 		Body:    body,
+		Type:    fmt.Sprintf("%s:%s", exchange, event),
 		Headers: amqp.Table{},
 	}
 
@@ -128,49 +135,80 @@ func (r *broker) Publish(exchange, event string, payload []byte, opts *PublishOp
 		return errors.New("connection is nil")
 	}
 
-	return r.conn.Publish(exchange, "*", m)
+	return r.conn.Publish(ctx, exchange, "*", m)
 }
 
-func (r *broker) Subscribe(exchange, queue string, handler SubscriberHandler, opts *SubscribeOptions) (Subscriber, error) {
-
+func (r *broker) Subscribe(exchange, queue, event string, handler CallHandler, opts *SubscribeOptions) (Subscriber, error) {
 	if r.conn == nil {
 		return nil, errors.New("not connected")
 	}
+
+	var handlerIndex = -1
+
+	r.mtx.Lock()
+	key := fmt.Sprintf("%s:%s", exchange, event)
+	if _, ok := r.handlers[key]; !ok {
+		r.handlers[key] = make([]CallHandler, 0)
+	}
+	handlerIndex = len(r.handlers[key])
+	r.handlers[key] = append(r.handlers[key], handler)
+	r.mtx.Unlock()
 
 	if opts == nil {
 		opts = new(SubscribeOptions)
 	}
 
-	fn := func(msg amqp.Delivery) {
-		ctx := context.Background()
-
-		e := message{}
-		json.Unmarshal(msg.Body, &e)
-
-		headers := make(map[string]string)
-		for k, v := range msg.Headers {
-			headers[k], _ = v.(string)
-		}
-
-		ctx = context.WithValue(ctx, "headers", headers)
-		handler(ctx, e.Event, []byte(e.Payload))
-	}
-
-	sb := &consumer{
+	c := consumer{
 		runtime:      r.runtime,
 		exchange:     exchange,
 		queue:        queue,
 		key:          "*",
 		autoAck:      true,
 		broker:       r,
-		fn:           fn,
 		headers:      opts.Headers,
 		durableQueue: opts.DurableQueue,
+		fn: func(msg amqp.Delivery) {
+			ctx := context.Background()
+			e := message{}
+			json.Unmarshal(msg.Body, &e)
+
+			var (
+				handlers []CallHandler
+				ok       bool
+			)
+
+			r.mtx.Lock()
+			handlers, ok = r.handlers[msg.Type]
+			if !ok {
+				return
+			}
+			r.mtx.Unlock()
+
+			headers := make(map[string]string)
+			for k, v := range msg.Headers {
+				headers[k], _ = v.(string)
+			}
+
+			ctx = context.WithValue(ctx, "headers", headers)
+
+			for _, h := range handlers {
+				h(ctx, []byte(e.Payload))
+			}
+		},
 	}
 
-	go sb.resubscribe()
+	c.unsubscribe = func() {
+		if handlerIndex > -1 {
+			r.mtx.Lock()
+			r.handlers[key] = append(r.handlers[key][:handlerIndex], r.handlers[key][handlerIndex+1:]...)
+			r.mtx.Unlock()
+			handlerIndex = -1
+		}
+	}
 
-	return sb, nil
+	go c.consume()
+
+	return &c, nil
 }
 
 func (r *broker) Connected() error {

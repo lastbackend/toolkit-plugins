@@ -38,6 +38,7 @@ type consumer struct {
 	fn           func(msg amqp.Delivery)
 	headers      map[string]interface{}
 	queueArgs    map[string]interface{}
+	unsubscribe  func()
 }
 
 func (c *consumer) Unsubscribe() error {
@@ -49,10 +50,14 @@ func (c *consumer) Unsubscribe() error {
 		return c.ch.Close()
 	}
 
+	if c.unsubscribe != nil {
+		c.unsubscribe()
+	}
+
 	return nil
 }
 
-func (c *consumer) resubscribe() {
+func (c *consumer) consume() {
 
 	minDelay := 100 * time.Millisecond
 	maxDelay := 30 * time.Second
