@@ -105,6 +105,7 @@ type TestConfig struct {
 	RunContainer   bool
 	ContainerImage string
 	ContainerName  string
+	MacConnections int
 }
 
 func NewTestPlugin(ctx context.Context, cfg TestConfig) (Plugin, error) {
@@ -135,6 +136,11 @@ func NewTestPlugin(ctx context.Context, cfg TestConfig) (Plugin, error) {
 			WithOccurrence(2).
 			WithStartupTimeout(5 * time.Second)
 
+		cmd := "-N 500"
+		if cfg.MacConnections > 0 {
+			cmd = fmt.Sprintf("-N %d", cfg.MacConnections)
+		}
+
 		container, err := postgres.RunContainer(ctx,
 			testcontainers.WithImage(opts.ContainerImage),
 			postgres.WithDatabase("postgres"),
@@ -144,6 +150,7 @@ func NewTestPlugin(ctx context.Context, cfg TestConfig) (Plugin, error) {
 			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 				ContainerRequest: testcontainers.ContainerRequest{
 					Name: opts.ContainerName,
+					Cmd:  []string{cmd},
 				},
 				Reuse: true,
 			}),
