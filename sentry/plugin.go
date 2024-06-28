@@ -19,6 +19,7 @@ package sentry
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -44,6 +45,7 @@ type Options struct {
 type Config struct {
 	DSN         string `env:"DSN" envDefault:"" comment:"Sentry DSN"`
 	Environment string `env:"ENVIRONMENT" envDefault:"production" comment:"Environment"`
+	Disable     bool   `env:"DISABLE" envDefault:"" comment:"disable sentry"`
 }
 
 type plugin struct {
@@ -56,6 +58,8 @@ type plugin struct {
 	opts Config
 
 	client *sentry.Client
+
+	isRunning bool
 }
 
 func (p *plugin) Client() *sentry.Client {
@@ -67,8 +71,11 @@ func (p *plugin) Info() {
 }
 
 func (p *plugin) PreStart(ctx context.Context) (err error) {
+	if p.opts.Disable {
+		return nil
+	}
 	if p.opts.DSN == "" {
-		return fmt.Errorf("%s_DSN environment variable required but not set", p.prefix)
+		return fmt.Errorf("%s_DSN environment variable required but not set", strings.ToUpper(p.prefix))
 	}
 
 	err = sentry.Init(sentry.ClientOptions{
@@ -81,10 +88,15 @@ func (p *plugin) PreStart(ctx context.Context) (err error) {
 
 	p.client = sentry.CurrentHub().Client()
 
+	p.isRunning = true
+
 	return nil
 }
 
 func (p *plugin) OnStop(context.Context) error {
+	if !p.isRunning {
+		return nil
+	}
 	sentry.Flush(2 * time.Second)
 	return nil
 }
