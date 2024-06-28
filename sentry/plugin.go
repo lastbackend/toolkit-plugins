@@ -18,8 +18,6 @@ package sentry
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -34,7 +32,7 @@ const (
 
 type Plugin interface {
 	toolkit.Plugin
-	Client() *sentry.Client
+	Client() *sentry.Hub
 	Info()
 }
 
@@ -43,9 +41,12 @@ type Options struct {
 }
 
 type Config struct {
-	DSN         string `env:"DSN" envDefault:"" comment:"Sentry DSN"`
-	Environment string `env:"ENVIRONMENT" envDefault:"production" comment:"Environment"`
-	Disable     bool   `env:"DISABLE" envDefault:"" comment:"disable sentry"`
+	DSN              string `env:"DSN" envDefault:"" comment:"The DSN to use. If the DSN is not set, the client is effectively disabled."`
+	Environment      string `env:"ENVIRONMENT" envDefault:"production" comment:"The environment to be sent with events."`
+	Release          string `env:"RELEASE" envDefault:"" comment:"The release to be sent with events."`
+	Dist             string `env:"DIST" envDefault:"" comment:"The dist to be sent with events."`
+	AttachStacktrace bool   `env:"ATTACH_STACKTRACE" envDefault:"false" comment:"Configures whether SDK should generate and attach stacktraces to pure capture message calls."`
+	Debug            bool   `env:"DEBUG" envDefault:"false" comment:"In debug mode, the debug information is printed to stdout to help you understand what sentry is doing."`
 }
 
 type plugin struct {
@@ -57,12 +58,12 @@ type plugin struct {
 
 	opts Config
 
-	client *sentry.Client
+	client *sentry.Hub
 
 	isRunning bool
 }
 
-func (p *plugin) Client() *sentry.Client {
+func (p *plugin) Client() *sentry.Hub {
 	return p.client
 }
 
@@ -71,22 +72,19 @@ func (p *plugin) Info() {
 }
 
 func (p *plugin) PreStart(ctx context.Context) (err error) {
-	if p.opts.Disable {
-		return nil
-	}
-	if p.opts.DSN == "" {
-		return fmt.Errorf("%s_DSN environment variable required but not set", strings.ToUpper(p.prefix))
-	}
-
 	err = sentry.Init(sentry.ClientOptions{
-		Dsn:         p.opts.DSN,
-		Environment: p.opts.Environment,
+		Debug:            p.opts.Debug,
+		Dsn:              p.opts.DSN,
+		Environment:      p.opts.Environment,
+		Release:          p.opts.Release,
+		Dist:             p.opts.Dist,
+		AttachStacktrace: p.opts.AttachStacktrace,
 	})
 	if err != nil {
 		return err
 	}
 
-	p.client = sentry.CurrentHub().Client()
+	p.client = sentry.CurrentHub()
 
 	p.isRunning = true
 
