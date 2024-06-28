@@ -1,5 +1,5 @@
 /*
-Copyright [2014] - [2023] The Last.Backend authors.
+Copyright [2014] - [2024] The Last.Backend authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,11 +20,11 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/lastbackend/toolkit/pkg/runtime"
-	"github.com/lastbackend/toolkit/pkg/tools/probes"
 	"strings"
 	"time"
 
+	"github.com/lastbackend/toolkit/pkg/runtime"
+	"github.com/lastbackend/toolkit/pkg/tools/probes"
 	"github.com/redis/go-redis/v9"
 )
 
