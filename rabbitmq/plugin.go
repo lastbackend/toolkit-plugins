@@ -203,6 +203,10 @@ func (p *plugin) PreStart(ctx context.Context) error {
 		return p.broker.Connected()
 	})
 
+	p.runtime.Tools().Probes().RegisterCheck(p.prefix, probes.LivenessProbe, func() error {
+		return p.broker.Connected()
+	})
+
 	return nil
 }
 
