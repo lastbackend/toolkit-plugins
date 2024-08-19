@@ -35,6 +35,11 @@ const (
 	defaultPrefix = "rabbitmq"
 )
 
+const (
+	errNotReceiveExpectedResponse = "did not receive expected response"
+	errTimedOutWaiting            = "timed out waiting for a response"
+)
+
 type Plugin interface {
 	Publish(ctx context.Context, event string, payload []byte, opts *PublishOptions) error
 	Subscribe(service, event string, handler CallHandler, opts *SubscribeOptions) (Subscriber, error)
@@ -199,9 +204,7 @@ func (p *plugin) PreStart(ctx context.Context) error {
 		return err
 	}
 
-	p.runtime.Tools().Probes().RegisterCheck(p.prefix, probes.ReadinessProbe, func() error {
-		return p.broker.Connected()
-	})
+	p.runtime.Tools().Probes().RegisterCheck(p.prefix, probes.ReadinessProbe, checkRabbitMQ(p.broker, 1*time.Second))
 
 	p.runtime.Tools().Probes().RegisterCheck(p.prefix, probes.LivenessProbe, func() error {
 		return p.broker.Connected()
@@ -225,4 +228,84 @@ func (p *plugin) Subscribe(service, event string, handler CallHandler, opts *Sub
 
 func (p *plugin) Channel() (*amqp.Channel, error) {
 	return p.broker.Channel()
+}
+
+func checkRabbitMQ(broker *broker, timeout time.Duration) probes.HandleFunc {
+	return func() error {
+		correlationID := "readiness_check"
+
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		if broker == nil {
+			return fmt.Errorf("connection is nil")
+		}
+
+		channel, err := broker.Channel()
+		if err != nil {
+			return err
+		}
+
+		queue, err := channel.QueueDeclare(
+			"",    // an empty string creates a temporary queue with a unique name
+			false, // durable
+			true,  // delete when unused (очередь будет удалена при закрытии соединения)
+			true,  // exclusive
+			false, // no-wait
+			nil,   // arguments
+		)
+		if err != nil {
+			return fmt.Errorf("failed to declare a queue: %v", err)
+		}
+
+		msgs, err := channel.Consume(
+			queue.Name, // queue
+			"",         // consumer
+			true,       // auto-ack
+			false,      // exclusive
+			false,      // no-local
+			false,      // no-wait
+			nil,        // args
+		)
+		if err != nil {
+			return fmt.Errorf("failed to register a consumer: %v", err)
+		}
+
+		err = channel.PublishWithContext(
+			ctx,
+			"",         // exchange
+			queue.Name, // routing key
+			false,      // mandatory
+			false,      // immediate
+			amqp.Publishing{
+				ContentType:   "text/plain",
+				Body:          []byte("readiness probe"),
+				CorrelationId: correlationID,
+				ReplyTo:       queue.Name,
+			})
+		if err != nil {
+			return fmt.Errorf("failed to publish a message: %v", err)
+		}
+
+		defer func() {
+			channel.QueueDelete(
+				queue.Name, // queue name
+				false,      // ifUnused
+				false,      // ifEmpty
+				false,      // no-wait
+			)
+		}()
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf(errTimedOutWaiting)
+		case msg := <-msgs:
+			if msg.CorrelationId == correlationID {
+				return nil
+			}
+		case <-time.After(timeout):
+			return fmt.Errorf(errTimedOutWaiting)
+		}
+
+		return fmt.Errorf(errNotReceiveExpectedResponse)
+	}
 }
