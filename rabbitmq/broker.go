@@ -150,6 +150,7 @@ func (r *broker) Subscribe(exchange, queue, event string, handler CallHandler, o
 	if _, ok := r.handlers[key]; !ok {
 		r.handlers[key] = make([]CallHandler, 0)
 	}
+
 	handlerIndex = len(r.handlers[key])
 	r.handlers[key] = append(r.handlers[key], handler)
 	r.mtx.Unlock()
