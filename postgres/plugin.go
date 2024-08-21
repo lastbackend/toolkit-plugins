@@ -126,6 +126,7 @@ func (p *plugin) PreStart(_ context.Context) (err error) {
 	}
 
 	p.runtime.Tools().Probes().RegisterCheck(p.prefix, probes.ReadinessProbe, PostgresPingChecker(conn, 1*time.Second))
+	p.runtime.Tools().Probes().RegisterCheck(p.prefix, probes.LivenessProbe, PostgresPingChecker(conn, 1*time.Second))
 
 	p.connection = p.opts.DSN
 	p.db = conn

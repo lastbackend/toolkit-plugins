@@ -120,13 +120,16 @@ func (p *plugin) PreStart(ctx context.Context) (err error) {
 	if p.opts.Cluster {
 		client := redis.NewClusterClient(p.prepareClusterOptions(p.opts))
 		p.runtime.Tools().Probes().RegisterCheck(p.prefix, probes.ReadinessProbe, redisClusterPingChecker(client, 1*time.Second))
+		p.runtime.Tools().Probes().RegisterCheck(p.prefix, probes.LivenessProbe, redisClusterPingChecker(client, 1*time.Second))
 
 		p.cdb = client
 	} else {
 		client := redis.NewClient(p.prepareOptions(p.opts))
 		p.runtime.Tools().Probes().RegisterCheck(p.prefix, probes.ReadinessProbe, redisPingChecker(client, 1*time.Second))
+		p.runtime.Tools().Probes().RegisterCheck(p.prefix, probes.LivenessProbe, redisPingChecker(client, 1*time.Second))
 		p.db = client
 	}
+
 	return nil
 }
 

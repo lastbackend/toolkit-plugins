@@ -119,6 +119,7 @@ func (p *plugin) PreStart(ctx context.Context) (err error) {
 	db.AddQueryHook(dbLogger{})
 
 	p.runtime.Tools().Probes().RegisterCheck(p.prefix, probes.ReadinessProbe, PostgresPingChecker(db, 1*time.Second))
+	p.runtime.Tools().Probes().RegisterCheck(p.prefix, probes.LivenessProbe, PostgresPingChecker(db, 1*time.Second))
 
 	p.db = db
 

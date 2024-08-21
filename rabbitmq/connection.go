@@ -202,7 +202,6 @@ func (a *amqpConn) Channel() (*amqp.Channel, error) {
 	if !a.connected {
 		return nil, errors.New("connection closed")
 	}
-
 	return a.conn.Channel()
 }
 
