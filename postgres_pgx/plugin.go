@@ -1,19 +1,3 @@
-/*
-Copyright [2014] - [2024] The Last.Backend authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package postgres_pgx
 
 import (
@@ -26,7 +10,6 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	mpgx "github.com/golang-migrate/migrate/v4/database/pgx"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lastbackend/toolkit/pkg/runtime"
 	"github.com/lastbackend/toolkit/pkg/tools/probes"
 	"github.com/pkg/errors"
@@ -49,7 +32,7 @@ const (
 )
 
 type Plugin interface {
-	DB() *pgxpool.Pool
+	DB() *pgx.Conn
 	RunMigration() error
 }
 
@@ -80,7 +63,7 @@ type plugin struct {
 	connection string
 	opts       Config
 
-	pool *pgxpool.Pool
+	conn *pgx.Conn
 }
 
 func NewPlugin(runtime runtime.Runtime, opts *Options) Plugin {
@@ -213,8 +196,8 @@ func NewTestPlugin(ctx context.Context, cfg TestConfig) (Plugin, error) {
 	return p, nil
 }
 
-func (p *plugin) DB() *pgxpool.Pool {
-	return p.pool
+func (p *plugin) DB() *pgx.Conn {
+	return p.conn
 }
 
 func (p *plugin) PreStart(ctx context.Context) (err error) {
@@ -243,9 +226,9 @@ func (p *plugin) PreStart(ctx context.Context) (err error) {
 	return nil
 }
 
-func (p *plugin) OnStop(context.Context) error {
-	if p.pool != nil {
-		p.pool.Close()
+func (p *plugin) OnStop(ctx context.Context) error {
+	if p.conn != nil {
+		return p.conn.Close(ctx)
 	}
 	return nil
 }
@@ -276,7 +259,7 @@ func (p *plugin) RunMigration() error {
 
 	conn, err := sql.Open(driverName, p.opts.DSN)
 	if err != nil {
-		return fmt.Errorf("failed to dbection open: %w", err)
+		return fmt.Errorf("failed to connection open: %v", err)
 	}
 
 	driver, err := mpgx.WithInstance(conn, &mpgx.Config{})
@@ -313,20 +296,14 @@ func (p *plugin) RunMigration() error {
 
 func (p *plugin) initPlugin(ctx context.Context) error {
 
-	poolConfig, err := pgxpool.ParseConfig(p.opts.DSN)
-	if err != nil {
-		return errors.New(errMissingConnectionString)
-	}
-
-	poolConfig.MaxConns = int32(p.opts.MaxPoolSize)
-
 	connAttempts := p.opts.ConnAttempts
 	if connAttempts == 0 {
 		connAttempts = 1
 	}
 
+	var err error
 	for connAttempts > 0 {
-		p.pool, err = pgxpool.NewWithConfig(ctx, poolConfig)
+		p.conn, err = pgx.Connect(ctx, p.opts.DSN)
 		if err == nil {
 			break
 		}

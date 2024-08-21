@@ -156,7 +156,7 @@ func (p *plugin) RunMigration() error {
 
 	conn, err := sql.Open(driverName, p.opts.DSN)
 	if err != nil {
-		return fmt.Errorf("failed to dbection open: %w", err)
+		return fmt.Errorf("failed to dbection open: %v", err)
 	}
 
 	driver, err := postgres.WithInstance(conn, &postgres.Config{})
