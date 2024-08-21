@@ -207,10 +207,6 @@ func (p *plugin) PreStart(ctx context.Context) error {
 	p.runtime.Tools().Probes().RegisterCheck(p.prefix, probes.ReadinessProbe, checkRabbitMQ(p.broker, 1*time.Second))
 	p.runtime.Tools().Probes().RegisterCheck(p.prefix, probes.LivenessProbe, checkRabbitMQ(p.broker, 1*time.Second))
 
-	p.runtime.Tools().Probes().RegisterCheck(p.prefix, probes.LivenessProbe, func() error {
-		return p.broker.Connected()
-	})
-
 	return nil
 }
 
