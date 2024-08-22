@@ -241,6 +241,7 @@ func checkRabbitMQ(broker *broker, timeout time.Duration) probes.HandleFunc {
 		if err != nil {
 			return err
 		}
+		defer channel.Close()
 
 		queue, err := channel.QueueDeclare(
 			"",    // an empty string creates a temporary queue with a unique name
