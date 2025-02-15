@@ -53,7 +53,7 @@ type Config struct {
 	Username      string        `env:"USERNAME" envDefault:"postgres" comment:"The username to connect with"`
 	Password      string        `env:"PASSWORD" envDefault:"" comment:"The password to connect with"`
 	SSLMode       string        `env:"SSLMODE" envDefault:"disable" comment:"SSL mode (disable, allow, prefer, require, verify-ca, verify-full)"`
-	MaxPoolSize   int           `env:"MAX_POOL_SIZE" envDefault:"2" comment:"Max pool size"`
+	MaxPoolSize   int           `env:"MAX_POOL_SIZE" envDefault:"10" comment:"Max pool size"`
 	ConnAttempts  int           `env:"CONN_ATTEMPTS" envDefault:"10" comment:"Connection attempts"`
 	ConnTimeout   time.Duration `env:"CONN_TIMEOUT" envDefault:"15s" comment:"Connection timeout"`
 	MigrationsDir string        `env:"MIGRATIONS_DIR" comment:"Migrations directory"`
