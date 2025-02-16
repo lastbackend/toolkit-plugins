@@ -46,17 +46,21 @@ type Options struct {
 
 // Config defines the database configuration parameters
 type Config struct {
-	DSN           string        `env:"DSN" envDefault:"" comment:"DSN = postgresql://[user[:password]@][netloc][:port][/dbname][?param1=value1&...] complete connection string"`
-	Host          string        `env:"HOST" envDefault:"127.0.0.1" comment:"The host to connect to"`
-	Port          int32         `env:"PORT" envDefault:"5432" comment:"The port to connect to"`
-	Database      string        `env:"DATABASE" envDefault:"postgres" comment:"Database name"`
-	Username      string        `env:"USERNAME" envDefault:"postgres" comment:"The username to connect with"`
-	Password      string        `env:"PASSWORD" envDefault:"" comment:"The password to connect with"`
-	SSLMode       string        `env:"SSLMODE" envDefault:"disable" comment:"SSL mode (disable, allow, prefer, require, verify-ca, verify-full)"`
-	MaxPoolSize   int           `env:"MAX_POOL_SIZE" envDefault:"10" comment:"Max pool size"`
-	ConnAttempts  int           `env:"CONN_ATTEMPTS" envDefault:"10" comment:"Connection attempts"`
-	ConnTimeout   time.Duration `env:"CONN_TIMEOUT" envDefault:"15s" comment:"Connection timeout"`
-	MigrationsDir string        `env:"MIGRATIONS_DIR" comment:"Migrations directory"`
+	DSN               string        `env:"DSN" envDefault:"" comment:"DSN = postgresql://[user[:password]@][netloc][:port][/dbname][?param1=value1&...] complete connection string"`
+	Host              string        `env:"HOST" envDefault:"127.0.0.1" comment:"The host to connect to"`
+	Port              int32         `env:"PORT" envDefault:"5432" comment:"The port to connect to"`
+	Database          string        `env:"DATABASE" envDefault:"postgres" comment:"Database name"`
+	Username          string        `env:"USERNAME" envDefault:"postgres" comment:"The username to connect with"`
+	Password          string        `env:"PASSWORD" envDefault:"" comment:"The password to connect with"`
+	SSLMode           string        `env:"SSLMODE" envDefault:"disable" comment:"SSL mode (disable, allow, prefer, require, verify-ca, verify-full)"`
+	MaxPoolSize       int           `env:"MAX_POOL_SIZE" envDefault:"50" comment:"Max pool size"`
+	MinPoolSize       int           `env:"MIN_POOL_SIZE" envDefault:"10" comment:"Min pool size"`
+	MaxConnLifetime   time.Duration `env:"MAX_CONN_LIFETIME" envDefault:"1h" comment:"Maximum connection lifetime"`
+	MaxConnIdleTime   time.Duration `env:"MAX_CONN_IDLE_TIME" envDefault:"30m" comment:"Maximum connection idle time"`
+	HealthCheckPeriod time.Duration `env:"HEALTH_CHECK_PERIOD" envDefault:"1m" comment:"Health check period"`
+	ConnAttempts      int           `env:"CONN_ATTEMPTS" envDefault:"3" comment:"Connection attempts"`
+	ConnTimeout       time.Duration `env:"CONN_TIMEOUT" envDefault:"5s" comment:"Connection timeout"`
+	MigrationsDir     string        `env:"MIGRATIONS_DIR" comment:"Migrations directory"`
 }
 
 // TestConfig extends Config with additional testing-specific options
@@ -371,8 +375,12 @@ func (p *plugin) initPlugin(ctx context.Context) error {
 		return fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
-	// Set pool configuration
+	// Set pool configuration with production-ready settings
 	config.MaxConns = int32(p.opts.MaxPoolSize)
+	config.MinConns = int32(p.opts.MinPoolSize)
+	config.MaxConnLifetime = p.opts.MaxConnLifetime
+	config.MaxConnIdleTime = p.opts.MaxConnIdleTime
+	config.HealthCheckPeriod = p.opts.HealthCheckPeriod
 	config.ConnConfig.ConnectTimeout = p.opts.ConnTimeout
 
 	var lastErr error
