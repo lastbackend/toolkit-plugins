@@ -27,7 +27,6 @@ import (
 	"github.com/lastbackend/toolkit/pkg/tools/probes"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/rabbitmq"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
@@ -136,18 +135,21 @@ func NewTestPlugin(ctx context.Context, cfg TestConfig) (Plugin, error) {
 			WithOccurrence(2).
 			WithStartupTimeout(5 * time.Second)
 
-		container, err := rabbitmq.RunContainer(ctx,
-			testcontainers.WithImage(opts.ContainerImage),
-			rabbitmq.WithAdminPassword("user"),
-			rabbitmq.WithAdminPassword("pass"),
-			testcontainers.WithWaitStrategy(strategy),
-			testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
-				ContainerRequest: testcontainers.ContainerRequest{
-					Name: opts.ContainerName,
+		req := testcontainers.GenericContainerRequest{
+			ContainerRequest: testcontainers.ContainerRequest{
+				Name:         opts.ContainerName,
+				Image:        opts.ContainerImage,
+				ExposedPorts: []string{"5672/tcp", "15672/tcp"},
+				Env: map[string]string{
+					"RABBITMQ_DEFAULT_USER": "user",
+					"RABBITMQ_DEFAULT_PASS": "pass",
 				},
-				Reuse: true,
-			}),
-		)
+				WaitingFor: strategy,
+			},
+			Reuse: true,
+		}
+
+		container, err := testcontainers.GenericContainer(ctx, req)
 		if err != nil {
 			return nil, err
 		}
