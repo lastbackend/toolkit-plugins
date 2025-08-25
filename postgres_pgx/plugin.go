@@ -26,7 +26,7 @@ const (
 	defaultPrefix        = "psql"
 	driverName           = "postgres"
 	errMissingConnString = "missing connection string"
-	defaultImage         = "postgres:15.2"
+	defaultImage         = "postgres:17"
 	defaultContainerName = "postgres-test-container"
 )
 
@@ -170,7 +170,7 @@ func runPostgresContainer(ctx context.Context, cfg TestConfig) (string, error) {
 		ContainerRequest: testcontainers.ContainerRequest{
 			Name:         containerName,
 			Image:        image,
-			ExposedPorts: []string{"5432/tcp"},
+			//ExposedPorts: []string{"5432/tcp"},
 			Cmd:          []string{fmt.Sprintf("-N %d", getMaxConnections(cfg.MacConnections))},
 			WaitingFor: wait.ForLog("database system is ready to accept connections").
 				WithOccurrence(2).
